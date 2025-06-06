@@ -1,7 +1,7 @@
-from typing import Tuple
 import os
 import cv2 as cv
 import numpy as np
+from typing import Tuple
 
 
 def get_paths(base_path: str) -> Tuple[dict, dict, dict]:

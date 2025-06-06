@@ -106,60 +106,106 @@ def get_augmentation_transforms(intensity='moderate', img_size=224):
     if intensity == 'light':
         augmentation_variants = [
             transforms.Compose(base_transforms + [
-                transforms.RandomRotation(degrees=5, fill=0),
-                transforms.ColorJitter(brightness=0.1, contrast=0.1),
+                transforms.RandomRotation(
+                    degrees=5, fill=0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.1, contrast=0.1
+                ),
             ]),
             # Always flip for this variant
             transforms.Compose(base_transforms + [
-                transforms.RandomHorizontalFlip(p=1.0),
+                transforms.RandomHorizontalFlip(
+                    p=1.0
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomAffine(degrees=0, translate=(0.05, 0.05)),
+                transforms.RandomAffine(
+                    degrees=0, translate=(0.05, 0.05)
+                ),
             ]),
         ]
     elif intensity == 'moderate':
         augmentation_variants = [
             transforms.Compose(base_transforms + [
-                transforms.RandomRotation(degrees=10, fill=0),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2),
+                transforms.RandomRotation(
+                    degrees=10, fill=0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.2, contrast=0.2
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomHorizontalFlip(p=1.0),
-                transforms.ColorJitter(brightness=0.1, contrast=0.1),
+                transforms.RandomHorizontalFlip(
+                    p=1.0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.1, contrast=0.1
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+                transforms.RandomAffine(
+                    degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomRotation(degrees=7, fill=0),
-                transforms.RandomAffine(degrees=0, translate=(0.05, 0.05)),
+                transforms.RandomRotation(
+                    degrees=7, fill=0
+                ),
+                transforms.RandomAffine(
+                    degrees=0, translate=(0.05, 0.05)
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomPerspective(distortion_scale=0.1, p=1.0),
-                transforms.ColorJitter(brightness=0.15, contrast=0.15),
+                transforms.RandomPerspective(
+                    distortion_scale=0.1, p=1.0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.15, contrast=0.15
+                ),
             ]),
         ]
     elif intensity == 'strong':
         augmentation_variants = [
             transforms.Compose(base_transforms + [
-                transforms.RandomRotation(degrees=15, fill=0),
-                transforms.ColorJitter(brightness=0.3, contrast=0.3),
+                transforms.RandomRotation(
+                    degrees=15, fill=0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.3, contrast=0.3
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomHorizontalFlip(p=1.0),
-                transforms.ColorJitter(brightness=0.2, contrast=0.2),
-                transforms.RandomRotation(degrees=5, fill=0),
+                transforms.RandomHorizontalFlip(
+                    p=1.0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.2, contrast=0.2
+                ),
+                transforms.RandomRotation(
+                    degrees=5, fill=0
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomAffine(degrees=0, translate=(0.15, 0.15), scale=(0.85, 1.15)),
+                transforms.RandomAffine(
+                    degrees=0, translate=(0.15, 0.15), scale=(0.85, 1.15)
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.RandomPerspective(distortion_scale=0.2, p=1.0),
-                transforms.ColorJitter(brightness=0.25, contrast=0.25),
+                transforms.RandomPerspective(
+                    distortion_scale=0.2, p=1.0
+                ),
+                transforms.ColorJitter(
+                    brightness=0.25, contrast=0.25
+                ),
             ]),
             transforms.Compose(base_transforms + [
-                transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 1.0)),
-                transforms.ColorJitter(brightness=0.15, contrast=0.15),
+                transforms.GaussianBlur(
+                    kernel_size=3, sigma=(0.1, 1.0)
+                ),
+                transforms.ColorJitter(
+                    brightness=0.15, contrast=0.15
+                ),
             ]),
         ]
     else:
@@ -223,7 +269,9 @@ def apply_and_save_augmentations(
                 aug_path = os.path.join(output_dir, aug_filename)
 
                 # Save augmented image with format specification
-                if original_format in ['JPEG', 'JPG'] or ext.lower() in ['.jpg', '.jpeg']:
+                if original_format in [
+                    'JPEG', 'JPG'
+                ] or ext.lower() in ['.jpg', '.jpeg']:
                     augmented_image.save(aug_path, 'JPEG', quality=95)
                 elif original_format == 'PNG' or ext.lower() == '.png':
                     augmented_image.save(aug_path, 'PNG')
@@ -250,8 +298,9 @@ def split_dataset_with_augmentation(
     seed: int = None
 ) -> None:
     """
-    Splits the dataset into train, test, and validation sets with optional augmentation.
-    All images are resized to the target size regardless of augmentation.
+    Splits the dataset into train, test, and validation sets with optional
+    augmentation. All images are resized to the target size regardless of
+    augmentation.
     
     Parameters
     ----------
@@ -268,12 +317,12 @@ def split_dataset_with_augmentation(
     augment_config : dict, optional
         Configuration for augmentation and resizing. Example:
         {
-            'apply_to_splits': ['train'],  # Which splits to augment (all splits get resized)
-            'intensity': 'moderate',       # 'light', 'moderate', 'strong'
-            'augmentations_per_image': 3,  # How many augmented versions per original
-            'variants_per_image': 2,       # How many variants to use per image
-            'balance_classes': True,       # Balance classes using augmentation
-            'img_size': 224               # Target image size (applied to ALL splits)
+            'apply_to_splits': ['train'],
+            'intensity': 'moderate',
+            'augmentations_per_image': 3,
+            'variants_per_image': 2,
+            'balance_classes': True,
+            'img_size': 224
         }
     seed : int, optional
         Random seed for reproducibility
@@ -304,7 +353,10 @@ def split_dataset_with_augmentation(
 
     for split in splits:
         for class_name in classes:
-            os.makedirs(os.path.join(savepath, split, class_name), exist_ok=True)
+            os.makedirs(
+                os.path.join(savepath, split, class_name),
+                exist_ok=True
+            )
 
     # Get augmentation transforms if needed
     augmentation_transforms = []
@@ -314,11 +366,15 @@ def split_dataset_with_augmentation(
             img_size=augment_config['img_size']
         )
         # Limit to specified number of variants
-        augmentation_transforms = all_transforms[:augment_config['variants_per_image']]
+        augmentation_transforms = all_transforms[
+            :augment_config['variants_per_image']
+        ]
 
     # Create base resize transform for all images
     base_resize_transform = transforms.Compose([
-        transforms.Resize((augment_config['img_size'], augment_config['img_size']))
+        transforms.Resize(
+            (augment_config['img_size'], augment_config['img_size'])
+        )
     ])
 
     # Count images per class for balancing
@@ -394,7 +450,9 @@ def split_dataset_with_augmentation(
 
         # Copy files and apply augmentation where specified
         for split_name, split_images in splits_images.items():
-            print(f"  Processing {split_name} split: {len(split_images)} images")
+            print(
+                f"  Processing {split_name} split: {len(split_images)} images"
+            )
 
             split_original_count = 0
             split_augmented_count = 0
@@ -432,7 +490,8 @@ def split_dataset_with_augmentation(
 
                         base_filename = os.path.splitext(img)[0]
 
-                        # Standard augmentation (using the already resized image)
+                        # Standard augmentation (using the already resized
+                        # image)
                         augmented_paths = apply_and_save_augmentations(
                             dst, dst_dir, img, augmentation_transforms,
                             num_augmentations_per_variant=1
@@ -441,7 +500,9 @@ def split_dataset_with_augmentation(
 
                         # Additional augmentation for class balancing
                         if class_name in balance_info and split_name == 'train':
-                            extra_augs_needed = balance_info[class_name] // len(splits_images[split_name])
+                            extra_augs_needed = balance_info[class_name] // len(
+                                splits_images[split_name]
+                            )
                             if extra_augs_needed > 0:
                                 extra_augmented_paths = apply_and_save_augmentations(
                                     dst, dst_dir, f"{base_filename}_balance", 
@@ -456,7 +517,10 @@ def split_dataset_with_augmentation(
                     shutil.copy2(src, dst)
                     split_original_count += 1
 
-            print(f"    Original: {split_original_count}, Augmented: {split_augmented_count}")
+            print(
+                f"    Original: {split_original_count}, "
+                f"Augmented: {split_augmented_count}"
+            )
             total_original += split_original_count
             total_augmented += split_augmented_count
 
