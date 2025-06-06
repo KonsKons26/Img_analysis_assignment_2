@@ -1,3 +1,5 @@
 .venv
 chest_xray
+merged
+split
 src/__pycache__
