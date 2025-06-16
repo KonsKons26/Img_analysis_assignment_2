@@ -1,5 +1,8 @@
 import os
 import numpy as np
+import cv2 as cv
+from skimage.feature import hog
+
 
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 from sklearn.svm import SVC
@@ -22,196 +25,219 @@ MODELS = {
 }
 
 
-class ClassicalML:
-    def __init__(self, base_path: str, model_name: str):
-        if model_name not in MODELS:
-            raise ValueError(f"Model {model_name} is not supported.")
-        self.base_path = base_path
-        self.model_name = model_name
-        self.model = MODELS[model_name]
-        self._load_data()
+class FeatureExtractor:
 
-    def _load_data(self):
-        paths = get_paths(self.base_path)
-        self.paths = paths
+    FEATURE_NAMES = [
+        "mean", "median", "std", "entropy", "energy",
+        
+        "hist_means_0_50", "hist_means_51_100", "hist_means_101, 150",
+        "hist_means_151_200", "hist_means_201_250",
+        "hist_std_0_50", "hist_std_51_100", "hist_std_101_150",
+        "hist_std_151_200", "hist_std_201_250",
 
-        X_train = []
-        y_train = []
-        X_test = []
-        y_test = []
-        X_val = []
-        y_val = []
+        "otsu_threshold",
 
-        def process_folder(
-                folder_path: str, label: str, X_list: list, y_list: list
-            ):
-            """Helper function to process images from a folder"""
-            for img_file in os.listdir(folder_path):
-                img_path = os.path.join(folder_path, img_file)
-                try:
-                    img = read_image(img_path)
-                    X_list.append(img)
-                    # 0 for NORMAL, 1 for PNEUMONIA
-                    y_list.append(0 if label == 'NORMAL' else 1)
-                except Exception as e:
-                    print(f"Error processing {img_path}: {str(e)}")
-                    continue
+        "n_edges",
+        
+        "horizontal_lines", "vertical_lines",
 
-        # Load training data
-        for label, folder_path in paths['train'].items():
-            process_folder(folder_path, label, X_train, y_train)
+        "hog_features",
 
-        # Load test data
-        for label, folder_path in paths['test'].items():
-            process_folder(folder_path, label, X_test, y_test)
+        "fft_mean", "fft_std",
 
-        # Load validation data
-        for label, folder_path in paths['val'].items():
-            process_folder(folder_path, label, X_val, y_val)
+        "fractal_dim",
 
-        # Convert lists to numpy arrays for easier processing
-        self.X_train = np.array(X_train)
-        self.y_train = np.array(y_train)
-        self.X_test = np.array(X_test)
-        self.y_test = np.array(y_test)
-        self.X_val = np.array(X_val)
-        self.y_val = np.array(y_val)
+        "hu_moment_1", "hu_moment_2", "hu_moment_3", "hu_moment_4",
+        "hu_moment_5", "hu_moment_6", "hu_moment_7"
+    ]
 
-    def train(self):
-        """
-        Train a classical ML model with cross-validation and parameter tuning.
+    def __init__(
+            self,
+            img,
+            otsu_thr,
+            edge_thr1, edge_thr2,
+            line_thr, hor_thr, ver_thr,
+            hog_orientations, hog_pixels_per_cell, hog_cells_per_block,
+            frac_thr
+    ):
+        self.img = img
+        self.otsu_thr = otsu_thr
+        self.edge_thr1 = edge_thr1
+        self.edge_thr2 = edge_thr2
+        self.line_thr = line_thr
+        self.hor_thr = hor_thr
+        self.ver_thr = ver_thr
+        self.hog_orientations = hog_orientations
+        self.hog_pixels_per_cell = hog_pixels_per_cell
+        self.hog_cells_per_block = hog_cells_per_block
+        self.frac_thr = frac_thr
 
-        Parameters:
-        -----------
-        model_type : str ('svm' or 'random_forest')
-            Type of model to train
+    def extract_features(self):
+        # General stats
+        mean, median, std, entropy, energy = self._extract_first_order_stats()
 
-        Returns:
-        --------
-        best_model : sklearn estimator
-            The trained model with best parameters
-        """
-        # Flatten images for classical ML
-        X_train_flat = np.array([img.flatten() for img in self.X_train])
-        X_val_flat = np.array([img.flatten() for img in self.X_val])
+        # Histogram stats
+        hist_means, hist_stds = self._extract_hist_stats()
 
-        # Standardize features
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train_flat)
-        X_val_scaled = scaler.transform(X_val_flat)
+        # Otsu's threshold
+        otsus_threshold = self._otsu_intraclass_variance()
 
-        if self.model_name == 'QDA':
-            # Define pipeline and parameters for QDA
-            pipeline = Pipeline([
-                ('scaler', StandardScaler()),
-                ('clf', QuadraticDiscriminantAnalysis())
-            ])
+        # Number of edges
+        edges_count = self._count_edges()
 
-            param_grid = {
-                'clf__reg_param': [0.0, 0.1, 0.5, 1.0]
-            }
+        # Horizontal and vertical lines
+        hor, ver = self._count_horizontals_verticals()
 
-        elif self.model_name == 'SVM':
-            # Define pipeline and parameters for SVM
-            pipeline = Pipeline([
-                ('scaler', StandardScaler()),
-                ('clf', SVC(random_state=42))
-            ])
+        # HOG features
+        hog_features = self._extract_hog_features()
 
-            param_grid = {
-                'clf__C': [0.1, 1, 10],
-                'clf__gamma': ['scale', 'auto', 0.01, 0.1],
-                'clf__kernel': ['rbf', 'linear']
-            }
+        # FFT mean and std
+        fft_mean, fft_std = self._extract_fft_features()
 
-        elif self.model_name == 'NB':
-            # Define pipeline and parameters for Naive Bayes
-            pipeline = Pipeline([
-                ('scaler', StandardScaler()),
-                ('clf', GaussianNB())
-            ])
+        # Fractal dim
+        fractal_dim = self._fractal_dimension()
 
-            param_grid = {
-                'clf__C': [0.1, 1, 10],
-                'clf__gamma': ['scale', 'auto', 0.01, 0.1],
-                'clf__kernel': ['rbf', 'linear']
-            }
+        # Hu's seven invariant moments
+        hu_moments = self._extract_hu_moments()
 
-        elif self.model_name == 'RF':
-            # Define pipeline and parameters for Random Forest
-            pipeline = Pipeline([
-                ('scaler', StandardScaler()),
-                ('clf', RandomForestClassifier(random_state=42))
-            ])
+        return np.array([
+            mean, median, std, entropy, energy,
 
-            param_grid = {
-                'clf__n_estimators': [50, 100, 200],
-                'clf__max_depth': [None, 10, 20],
-                'clf__min_samples_split': [2, 5, 10]
-            }
+            hist_means[0], hist_means[1], hist_means[2], hist_means[3],
+            hist_means[4], hist_stds[0], hist_stds[1], hist_stds[2],
+            hist_stds[3], hist_stds[4],
 
-        else:
-            raise ValueError(
-                "model_type must be either 'svm' or 'random_forest'"
-            )
+            otsus_threshold,
 
-        # Setup cross-validation
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+            edges_count,
 
-        # Grid search with cross-validation
-        grid_search = GridSearchCV(
-            estimator=pipeline,
-            param_grid=param_grid,
-            cv=cv,
-            scoring='f1',
-            n_jobs=-1,
-            verbose=1
+            hor, ver,
+
+            hog_features,
+
+            fft_mean, fft_std,
+
+            fractal_dim,
+
+            hu_moments[0], hu_moments[1], hu_moments[2], hu_moments[3],
+            hu_moments[4], hu_moments[5], hu_moments[6]
+        ])
+
+    def _extract_first_order_stats(self):
+        return [
+            np.mean(self.img),
+            np.median(self.img),
+            np.std(self.img),
+            -np.sum(self.img * np.log2(self.img + 1e-10)),
+            np.sum(self.img**2)
+        ]
+
+    def _extract_hist_stats(self):
+            hist = cv.calcHist([self.img], [0], None, [256], [0, 256])
+            sum_hist = np.sum(hist)
+            normalized_hist = hist.flatten(
+            ) / sum_hist if sum_hist > 0 else np.zeros(256)
+
+            hist_means = [
+                np.mean(normalized_hist[i: i+50]) for i in range(0, 250, 50)
+            ]
+            hist_stds = [
+                np.std(normalized_hist[i: i+50]) for i in range(0, 250, 50)
+            ]
+
+            return hist_means, hist_stds
+
+    def _otsu_intraclass_variance(self):
+        return np.nansum(
+            [
+                np.mean(cls) * np.var(self.img, where=cls)
+                for cls in [self.img >= self.otsu_thr, self.img < self.otsu_thr]
+            ]
         )
 
-        print(f"Training {self.model_name} model with cross-validation...")
-        grid_search.fit(X_train_scaled, self.y_train)
+    def _count_edges(self):
+        img = self.img.copy()
+        img = cv.GaussianBlur(img, (7, 7), 0)
+        edges = cv.Canny(img, self.edge_thr1, self.edge_thr2)
+        self.edges = edges
+        return np.sum(edges > 0)
 
-        # Evaluate on validation set
-        val_pred = grid_search.predict(X_val_scaled)
-        val_accuracy = accuracy_score(self.y_val, val_pred)
-        val_f1 = f1_score(self.y_val, val_pred)
+    def _count_horizontals_verticals(self):
+        hor, ver = 0, 0
+        im = self.edges.copy()
+        lines = cv.HoughLines(im, 1, np.pi/180, self.line_thr)
+        if lines is not None:
+            for line in lines:
+                for _, theta in line:
+                    angle = theta * 180 / np.pi
 
-        print("\nBest parameters found:")
-        print(grid_search.best_params_)
-        print(f"\nValidation Accuracy: {val_accuracy:.4f}")
-        print(f"Validation F1 Score: {val_f1:.4f}")
+                    if (
+                        90 - self.hor_thr < angle < 90 + self.hor_thr
+                    ) or (
+                        270 - self.hor_thr < angle < 270 + self.hor_thr
+                    ):
+                        hor += 1
 
-        # Store the best model
-        self.best_model = grid_search.best_estimator_
-        self.scaler = scaler  # Store scaler for later use
+                    if (
+                        0 - self.ver_thr < angle < 0 + self.ver_thr
+                    ) or (
+                        180 - self.ver_thr < angle < 180 + self.ver_thr
+                    ):
+                        ver += 1
 
-        return self.best_model
+        return hor, ver
 
-    def predict(self):
-        """
-        Predict labels for input data using the trained model.
+    def _extract_hog_features(self):
+        features = hog(
+            self.img,
+            orientations=self.hog_orientations,
+            pixels_per_cell=self.hog_pixels_per_cell,
+            cells_per_block=self.hog_cells_per_block,
+            block_norm="L2-Hys",
+            feature_vector=True
+        )
+        return features.shape[0]
 
-        Parameters:
-        -----------
-        X : np.ndarray
-            Input data to predict labels for
+    def _extract_fft_features(self):
+        fft = np.fft.fft2(self.img)
+        magnitude = np.abs(fft)
+        return [
+            np.mean(magnitude),
+            np.std(magnitude)
+        ]
 
-        Returns:
-        --------
-        np.ndarray
-            Predicted labels
-        """
-        if not hasattr(self, 'best_model'):
-            raise RuntimeError("Model has not been trained yet.")
+    def _fractal_dimension(self):
+        def boxcount(image, k):
+            S = np.add.reduceat(
+                np.add.reduceat(image, 
+                            np.arange(0, image.shape[0], k), 
+                            axis=0),
+                np.arange(0, image.shape[1], k), 
+                axis=1)
+            return len(np.where(S > 0)[0])
         
-        # Flatten and scale the input data
-        X_flat = np.array([img.flatten() for img in self.X_test])
-        X_scaled = self.scaler.transform(X_flat)
+        binary = (self.img > self.frac_thr).astype(int)
+        sizes = 2**np.arange(1, 8)
+        counts = [boxcount(binary, size) for size in sizes]
+        coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
+        return -coeffs[0]
 
-        predictions = self.best_model.predict(X_scaled)
+    def _extract_hu_moments(self):
+        moments = cv.moments(self.img)
+        hu_moments = cv.HuMoments(moments).flatten()
+        return list(hu_moments)
 
-        confusion_matrix = confusion_matrix(self.y_test, predictions)
-        disp = ConfusionMatrixDisplay(confusion_matrix=confusion_matrix,
-                                      display_labels=['NORMAL', 'PNEUMONIA'])
-        disp.plot(cmap='Blues')
-        return predictions, confusion_matrix
+
+# class ClassicalML:
+#     def __init__(
+#             self,
+#             model_type: str,
+#             normal_path: str,
+#             pneumonia_path: str,
+#             models_path: str,
+#     ):
+#         self.model_type = model_type
+#         self.model = MODELS[self.model_type]
+#         self.normal_path = normal_path
+#         self.pneumonia_path = pneumonia_path
+#         self.models_path = models_path
