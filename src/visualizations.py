@@ -381,3 +381,25 @@ def plot_intensity_distributions(
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.tight_layout()
     plt.show()
+
+
+def plot_processed_image_grid_one_class(in_path: str, n: int) -> None:
+    im_paths = [
+        os.path.join(in_path, f)
+        for f in os.listdir(in_path)
+        if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+    ]
+    ims = random.sample(im_paths, n)
+    images = [read_image(p) for p in ims]
+
+    rows = cols = round(n**0.5)
+
+    fig, axes = plt.subplots(rows, cols, figsize=(2 * cols, 2 * rows))
+    axes = axes.flatten() if n > 1 else [axes]
+    for ax, img in zip(axes, images):
+        ax.imshow(img, cmap='gray')
+        ax.axis('off')
+    for ax in axes[n:]:
+        ax.axis('off')
+    plt.tight_layout()
+    plt.show()

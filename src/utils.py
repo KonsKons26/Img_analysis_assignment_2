@@ -9,7 +9,8 @@ def get_paths(base_path: str) -> Tuple[dict, dict, dict]:
     Returns the paths to the training, testing, and validation datasets.
 
     The base_path should contain three directories: train, test, and val.
-    Each of these directories should contain two subdirectories for each label
+    Each of these directories should contain two subdirectories, one for each
+    label.
 
     Parameters
     ----------

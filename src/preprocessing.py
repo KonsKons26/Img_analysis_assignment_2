@@ -1,10 +1,10 @@
 import os
 import shutil
 import random
-from PIL import Image
-import torchvision.transforms as transforms
+import numpy as np
+from PIL import Image, ImageEnhance
+import cv2
 from src.utils import get_paths
-from typing import Dict, List, Optional
 
 
 def merge_splits(
@@ -82,450 +82,196 @@ def merge_splits(
     return []
 
 
-def get_augmentation_transforms(intensity='moderate', img_size=224):
+def balance_dataset(in_dir: str, out_dir: str, target_size: tuple = (224, 224)):
     """
-    Get augmentation transforms that will be applied and saved as new images.
-
-    Parameters
-    ----------
-    intensity : str
-        Intensity of augmentation: 'light', 'moderate', or 'strong'.
-    img_size : int
-        Size to which images will be resized before augmentation.
-
-    Returns
-    -------
-    augmentation_variants : list
-        List of augmentation transforms to be applied to images.
-    """
-    base_transforms = [
-        transforms.Resize((img_size, img_size)),
-    ]
+    Balance dataset by augmenting images to match class counts.
+    All original images are also augmented.
     
-    # Define different augmentation variants
-    if intensity == 'light':
-        augmentation_variants = [
-            transforms.Compose(base_transforms + [
-                transforms.RandomRotation(
-                    degrees=5, fill=0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.1, contrast=0.1
-                ),
-            ]),
-            # Always flip for this variant
-            transforms.Compose(base_transforms + [
-                transforms.RandomHorizontalFlip(
-                    p=1.0
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomAffine(
-                    degrees=0, translate=(0.05, 0.05)
-                ),
-            ]),
-        ]
-    elif intensity == 'moderate':
-        augmentation_variants = [
-            transforms.Compose(base_transforms + [
-                transforms.RandomRotation(
-                    degrees=10, fill=0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.2, contrast=0.2
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomHorizontalFlip(
-                    p=1.0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.1, contrast=0.1
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomAffine(
-                    degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1)
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomRotation(
-                    degrees=7, fill=0
-                ),
-                transforms.RandomAffine(
-                    degrees=0, translate=(0.05, 0.05)
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomPerspective(
-                    distortion_scale=0.1, p=1.0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.15, contrast=0.15
-                ),
-            ]),
-        ]
-    elif intensity == 'strong':
-        augmentation_variants = [
-            transforms.Compose(base_transforms + [
-                transforms.RandomRotation(
-                    degrees=15, fill=0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.3, contrast=0.3
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomHorizontalFlip(
-                    p=1.0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.2, contrast=0.2
-                ),
-                transforms.RandomRotation(
-                    degrees=5, fill=0
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomAffine(
-                    degrees=0, translate=(0.15, 0.15), scale=(0.85, 1.15)
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.RandomPerspective(
-                    distortion_scale=0.2, p=1.0
-                ),
-                transforms.ColorJitter(
-                    brightness=0.25, contrast=0.25
-                ),
-            ]),
-            transforms.Compose(base_transforms + [
-                transforms.GaussianBlur(
-                    kernel_size=3, sigma=(0.1, 1.0)
-                ),
-                transforms.ColorJitter(
-                    brightness=0.15, contrast=0.15
-                ),
-            ]),
-        ]
-    else:
-        augmentation_variants = []
-
-    return augmentation_variants
-
-
-def apply_and_save_augmentations(
-    image_path: str, 
-    output_dir: str, 
-    base_filename: str,
-    augmentation_transforms: List[transforms.Compose],
-    num_augmentations_per_variant: int = 1
-) -> List[str]:
+    Args:
+        in_dir: Input directory containing NORMAL and PNEUMONIA folders
+        out_dir: Output directory where balanced dataset will be saved
+        target_size: Target size for all images as (width, height). Default is (224, 224)
     """
-    Apply augmentations to an image and save the results.
-
-    Parameters
-    ----------
-    image_path : str
-        Path to the original image file.
-    output_dir : str
-        Directory where augmented images will be saved.
-    base_filename : str
-        Base filename for the augmented images (without extension).
-    augmentation_transforms : List[transforms.Compose]
-        List of augmentation transforms to apply.
-    num_augmentations_per_variant : int, optional
-        Number of augmented images to generate per variant (default is 1).
-
-    Returns
-    -------
-    List[str]
-        List of paths to the saved augmented images.
-    """
-    try:
-        # Load original image
-        original_image = Image.open(image_path).convert('RGB')
-        saved_paths = []
-
-        # Detect original format for saving
-        original_format = original_image.format if original_image.format else 'JPEG'
-
-        # Apply each augmentation variant
-        for variant_idx, transform in enumerate(augmentation_transforms):
-            for aug_idx in range(num_augmentations_per_variant):
-                # Apply transform
-                augmented_image = transform(original_image)
-
-                # Convert back to PIL if it's a tensor
-                if hasattr(augmented_image, 'numpy'):
-                    # Convert tensor back to PIL Image
-                    augmented_image = transforms.ToPILImage()(augmented_image)
-
-                # Generate filename with proper extension
-                name, ext = os.path.splitext(base_filename)
-                if not ext:  # No extension found
-                    ext = '.jpeg'  # Default to .jpeg for X-ray images
-                aug_filename = f"{name}_aug_v{variant_idx}_n{aug_idx}{ext}"
-                aug_path = os.path.join(output_dir, aug_filename)
-
-                # Save augmented image with format specification
-                if original_format in [
-                    'JPEG', 'JPG'
-                ] or ext.lower() in ['.jpg', '.jpeg']:
-                    augmented_image.save(aug_path, 'JPEG', quality=95)
-                elif original_format == 'PNG' or ext.lower() == '.png':
-                    augmented_image.save(aug_path, 'PNG')
-                else:
-                    # Default to JPEG for unknown formats
-                    augmented_image.save(aug_path, 'JPEG', quality=95)
-
-                saved_paths.append(aug_path)
-
-        return saved_paths
-
-    except Exception as e:
-        print(f"Error augmenting {image_path}: {e}")
-        return []
-
-
-def split_dataset_with_augmentation(
-    inpath: str,
-    savepath: str,
-    train_frac: float,
-    test_frac: float,
-    val_frac: float,
-    augment_config: Optional[Dict] = None,
-    seed: int = None
-) -> None:
-    """
-    Splits the dataset into train, test, and validation sets with optional
-    augmentation. All images are resized to the target size regardless of
-    augmentation.
     
-    Parameters
-    ----------
-    inpath : str
-        Path to the directory containing 'NORMAL' and 'PNEUMONIA' folders
-    savepath : str
-        Path where the 'train', 'test', and 'val' directories will be created
-    train_frac : float
-        Fraction of images to use for training (0-1)
-    test_frac : float
-        Fraction of images to use for testing (0-1)
-    val_frac : float
-        Fraction of images to use for validation (0-1)
-    augment_config : dict, optional
-        Configuration for augmentation and resizing. Example:
-        {
-            'apply_to_splits': ['train'],
-            'intensity': 'moderate',
-            'augmentations_per_image': 3,
-            'variants_per_image': 2,
-            'balance_classes': True,
-            'img_size': 224
-        }
-    seed : int, optional
-        Random seed for reproducibility
-    """
-
-    # Validate fractions sum to 1
-    if not (0.9999 <= train_frac + test_frac + val_frac <= 1.0001):
-        raise ValueError("Fractions must sum to 1")
-
-    # Set random seed if provided
-    if seed is not None:
-        random.seed(seed)
-
-    # Default augmentation config
-    if augment_config is None:
-        augment_config = {
-            'apply_to_splits': [],
-            'intensity': 'moderate',
-            'augmentations_per_image': 2,
-            'variants_per_image': 2,
-            'balance_classes': False,
-            'img_size': 224
-        }
-
-    # Create output directory structure
-    splits = ['train', 'test', 'val']
-    classes = ['NORMAL', 'PNEUMONIA']
-
-    for split in splits:
-        for class_name in classes:
-            os.makedirs(
-                os.path.join(savepath, split, class_name),
-                exist_ok=True
-            )
-
-    # Get augmentation transforms if needed
-    augmentation_transforms = []
-    if augment_config['apply_to_splits']:
-        all_transforms = get_augmentation_transforms(
-            intensity=augment_config['intensity'],
-            img_size=augment_config['img_size']
-        )
-        # Limit to specified number of variants
-        augmentation_transforms = all_transforms[
-            :augment_config['variants_per_image']
-        ]
-
-    # Create base resize transform for all images
-    base_resize_transform = transforms.Compose([
-        transforms.Resize(
-            (augment_config['img_size'], augment_config['img_size'])
-        )
-    ])
-
-    # Count images per class for balancing
-    class_counts = {}
-    for class_name in classes:
-        class_path = os.path.join(inpath, class_name)
-        all_files = os.listdir(class_path)
-        images = []
-
-        for f in all_files:
-            # Check if it's an image file by extension or by trying to open it
-            if f.lower().endswith(('.jpeg', '.jpg', '.png')):
-                images.append(f)
-            else:
-                # Try to open as image to verify it's an image file
-                try:
-                    test_path = os.path.join(class_path, f)
-                    with Image.open(test_path) as img:
-                        images.append(f)  # It's a valid image
-                except:
-                    continue  # Skip non-image files
-
-        class_counts[class_name] = len(images)
-
-    # Determine if we need to balance and which class needs more augmentation
-    balance_info = {}
-    if augment_config.get('balance_classes', False):
-        max_count = max(class_counts.values())
-        for class_name, count in class_counts.items():
-            if count < max_count:
-                balance_info[class_name] = max_count - count
-
-    # Process each class
-    total_original = 0
-    total_augmented = 0
-
-    for class_name in classes:
-        print(f"Processing {class_name} class...")
-
-        # Get all image paths for this class
-        class_path = os.path.join(inpath, class_name)
-        # Include files without extensions (common in medical datasets)
-        all_files = os.listdir(class_path)
-        images = []
-
-        for f in all_files:
-            # Check if it's an image file by extension or by trying to open it
-            if f.lower().endswith(('.jpeg', '.jpg', '.png')):
-                images.append(f)
-            else:
-                # Try to open as image to verify it's an image file
-                try:
-                    test_path = os.path.join(class_path, f)
-                    with Image.open(test_path) as img:
-                        images.append(f)  # It's a valid image
-                except:
-                    continue  # Skip non-image files
-
-        # Shuffle the images
-        random.shuffle(images)
-
-        # Calculate split indices
-        num_images = len(images)
-        train_end = int(train_frac * num_images)
-        test_end = train_end + int(test_frac * num_images)
-
-        # Split into train, test, val
-        splits_images = {
-            'train': images[:train_end],
-            'test': images[train_end:test_end],
-            'val': images[test_end:]
-        }
-
-        # Copy files and apply augmentation where specified
-        for split_name, split_images in splits_images.items():
-            print(
-                f"  Processing {split_name} split: {len(split_images)} images"
-            )
-
-            split_original_count = 0
-            split_augmented_count = 0
+    # Create output directories
+    os.makedirs(out_dir, exist_ok=True)
+    os.makedirs(os.path.join(out_dir, "NORMAL"), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, "PNEUMONIA"), exist_ok=True)
+    
+    # Count the normal and pneumonia images
+    normal_count = len(os.listdir(os.path.join(in_dir, "NORMAL")))
+    pneumonia_count = len(os.listdir(os.path.join(in_dir, "PNEUMONIA")))
+    
+    print(f"Original counts - NORMAL: {normal_count}, PNEUMONIA: {pneumonia_count}")
+    
+    # Determine which class needs augmentation
+    max_count = max(normal_count, pneumonia_count)
+    normal_needed = max_count - normal_count
+    pneumonia_needed = max_count - pneumonia_count
+    
+    print(f"Augmentations needed - NORMAL: {normal_needed}, PNEUMONIA: {pneumonia_needed}")
+    
+    def augment_image(image_path, output_path, augmentation_type):
+        """Apply various augmentations to an image"""
+        try:
+            # Load image
+            img = cv2.imread(image_path)
+            if img is None:
+                return False
+                
+            height, width = img.shape[:2]
             
-            for img in split_images:
-                src = os.path.join(class_path, img)
-                dst_dir = os.path.join(savepath, split_name, class_name)
-                dst = os.path.join(dst_dir, img)
+            if augmentation_type == 'rotation':
+                # Random rotation (-15 to 15 degrees)
+                angle = random.uniform(-15, 15)
+                M = cv2.getRotationMatrix2D((width/2, height/2), angle, 1)
+                img = cv2.warpAffine(img, M, (width, height))
+                
+            elif augmentation_type == 'horizontal_flip':
+                # Horizontal flip
+                img = cv2.flip(img, 1)
+                
+            elif augmentation_type == 'brightness':
+                # Brightness adjustment
+                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                enhancer = ImageEnhance.Brightness(pil_img)
+                factor = random.uniform(0.8, 1.2)
+                pil_img = enhancer.enhance(factor)
+                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                
+            elif augmentation_type == 'contrast':
+                # Contrast adjustment
+                pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+                enhancer = ImageEnhance.Contrast(pil_img)
+                factor = random.uniform(0.8, 1.2)
+                pil_img = enhancer.enhance(factor)
+                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                
+            elif augmentation_type == 'zoom':
+                # Random zoom (crop and resize)
+                zoom_factor = random.uniform(0.8, 1.2)
+                if zoom_factor < 1:
+                    # Zoom out (add padding)
+                    new_height = int(height / zoom_factor)
+                    new_width = int(width / zoom_factor)
+                    img = cv2.resize(img, (new_width, new_height))
+                    top = (new_height - height) // 2
+                    left = (new_width - width) // 2
+                    img = img[top:top+height, left:left+width]
+                else:
+                    # Zoom in (crop)
+                    new_height = int(height / zoom_factor)
+                    new_width = int(width / zoom_factor)
+                    top = (height - new_height) // 2
+                    left = (width - new_width) // 2
+                    img = img[top:top+new_height, left:left+new_width]
+                    img = cv2.resize(img, (width, height))
+                    
+            elif augmentation_type == 'shift':
+                # Random translation
+                shift_x = random.randint(-20, 20)
+                shift_y = random.randint(-20, 20)
+                M = np.float32([[1, 0, shift_x], [0, 1, shift_y]])
+                img = cv2.warpAffine(img, M, (width, height))
+                
+            elif augmentation_type == 'noise':
+                # Add salt and pepper noise
+                noise_fraction = 0.025  # 2.5% of pixels will be affected
+                height, width = img.shape[:2]
+                total_pixels = height * width
+                num_noise_pixels = int(total_pixels * noise_fraction)
+                
+                # Create a copy to avoid modifying original
+                noisy_img = img.copy()
+                
+                # Add salt noise (white pixels)
+                salt_pixels = num_noise_pixels // 2
+                for _ in range(salt_pixels):
+                    y = random.randint(0, height - 1)
+                    x = random.randint(0, width - 1)
+                    noisy_img[y, x] = 255  # White pixel
+                
+                # Add pepper noise (black pixels)
+                pepper_pixels = num_noise_pixels - salt_pixels
+                for _ in range(pepper_pixels):
+                    y = random.randint(0, height - 1)
+                    x = random.randint(0, width - 1)
+                    noisy_img[y, x] = 0  # Black pixel
+                
+                img = noisy_img
+            
+            # Resize to target size regardless of augmentation type
+            img = cv2.resize(img, target_size)
+                
+            # Save augmented image
+            cv2.imwrite(output_path, img)
+            return True
+            
+        except Exception as e:
+            print(f"Error augmenting {image_path}: {e}")
+            return False
+    
+    def process_class(class_name, needed_augmentations):
+        """Process images for a specific class"""
+        class_dir = os.path.join(in_dir, class_name)
+        out_class_dir = os.path.join(out_dir, class_name)
+        
+        image_files = [f for f in os.listdir(class_dir) 
+                      if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+        
+        augmentation_types = ['rotation', 'horizontal_flip', 'brightness', 
+                            'contrast', 'zoom', 'shift', 'noise']
+        
+        # Copy or augment all original images
+        for i, img_file in enumerate(image_files):
+            img_path = os.path.join(class_dir, img_file)
+            base_name = os.path.splitext(img_file)[0]
+            ext = os.path.splitext(img_file)[1]
 
-                # Handle potential file existence
-                if os.path.exists(dst):
-                    base, ext = os.path.splitext(img)
-                    counter = 1
-                    while True:
-                        new_name = f"{base}_{counter}{ext}"
-                        new_dst = os.path.join(dst_dir, new_name)
-                        if not os.path.exists(new_dst):
-                            dst = new_dst
-                            img = new_name  # Update for augmentation naming
-                            break
-                        counter += 1
-
-                # Load and resize original image (all splits get resized)
-                try:
-                    original_image = Image.open(src).convert('RGB')
-                    resized_image = base_resize_transform(original_image)
-
-                    # Save resized original image
-                    resized_image.save(dst)
-                    split_original_count += 1
-
-                    # Apply augmentation if specified for this split
-                    if (split_name in augment_config['apply_to_splits'] and 
-                        augmentation_transforms):
-
-                        base_filename = os.path.splitext(img)[0]
-
-                        # Standard augmentation (using the already resized
-                        # image)
-                        augmented_paths = apply_and_save_augmentations(
-                            dst, dst_dir, img, augmentation_transforms,
-                            num_augmentations_per_variant=1
-                        )
-                        split_augmented_count += len(augmented_paths)
-
-                        # Additional augmentation for class balancing
-                        if class_name in balance_info and split_name == 'train':
-                            extra_augs_needed = balance_info[class_name] // len(
-                                splits_images[split_name]
-                            )
-                            if extra_augs_needed > 0:
-                                extra_augmented_paths = apply_and_save_augmentations(
-                                    dst, dst_dir, f"{base_filename}_balance", 
-                                    augmentation_transforms,
-                                    num_augmentations_per_variant=extra_augs_needed
-                                )
-                                split_augmented_count += len(extra_augmented_paths)
-
-                except Exception as e:
-                    print(f"Error processing {src}: {e}")
-                    # Fallback to simple copy if resize fails
-                    shutil.copy2(src, dst)
-                    split_original_count += 1
-
-            print(
-                f"    Original: {split_original_count}, "
-                f"Augmented: {split_augmented_count}"
-            )
-            total_original += split_original_count
-            total_augmented += split_augmented_count
-
-    print("\nDataset splitting with augmentation completed successfully.")
-    print(f"Directory structure created at: {savepath}")
-    print(f"Total original images: {total_original}")
-    print(f"Total augmented images: {total_augmented}")
-    print(f"Total images: {total_original + total_augmented}")
+            copy_rand = random.choice([True, False])
+            if copy_rand:
+                # Copy original image (but still resize to target size)
+                img = cv2.imread(img_path)
+                if img is not None:
+                    img = cv2.resize(img, target_size)
+                    original_out_path = os.path.join(out_class_dir, f"{base_name}_original{ext}")
+                    cv2.imwrite(original_out_path, img)
+            else:
+                # Create one augmentation of the original image
+                aug_type = augmentation_types[i % len(augmentation_types)]
+                aug_out_path = os.path.join(out_class_dir, f"{base_name}_aug_{aug_type}{ext}")
+                augment_image(img_path, aug_out_path, aug_type)
+        
+        # Generate additional augmentations for class balancing
+        if needed_augmentations > 0:
+            print(f"Generating {needed_augmentations} additional augmentations for {class_name}")
+            
+            for i in range(needed_augmentations):
+                # Select random ORIGINAL image to augment (from input directory, not output)
+                source_img = random.choice(image_files)
+                source_path = os.path.join(class_dir, source_img)  # This is the original input path
+                
+                # Select random augmentation type
+                aug_type = random.choice(augmentation_types)
+                
+                # Create output filename
+                base_name = os.path.splitext(source_img)[0]
+                ext = os.path.splitext(source_img)[1]
+                aug_out_path = os.path.join(out_class_dir, 
+                                          f"{base_name}_balance_{i}_{aug_type}{ext}")
+                
+                # Apply augmentation to the original source image
+                success = augment_image(source_path, aug_out_path, aug_type)
+                if not success:
+                    print(f"Failed to create augmentation {i} for {class_name}")
+    
+    # Process both classes
+    process_class("NORMAL", normal_needed)
+    process_class("PNEUMONIA", pneumonia_needed)
+    
+    # Final count verification
+    final_normal = len(os.listdir(os.path.join(out_dir, "NORMAL")))
+    final_pneumonia = len(os.listdir(os.path.join(out_dir, "PNEUMONIA")))
+    
+    print(f"\nFinal counts - NORMAL: {final_normal}, PNEUMONIA: {final_pneumonia}")
+    print(f"Dataset balancing complete! Output saved to: {out_dir}")
