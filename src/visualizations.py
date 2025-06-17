@@ -1,8 +1,14 @@
 import os
 import numpy as np
 import random
+import pandas as pd
 import cv2 as cv
+from scipy.stats import pearsonr, spearmanr, kendalltau
 import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import Normalize
+import seaborn as sns
+import plotly.graph_objects as go
 from src.utils import get_paths, read_image
 from typing import List, Dict
 
@@ -402,4 +408,212 @@ def plot_processed_image_grid_one_class(in_path: str, n: int) -> None:
     for ax in axes[n:]:
         ax.axis('off')
     plt.tight_layout()
+    plt.show()
+
+
+def plot_correlation_coefficients(
+        corr_df,
+        title: str = "Correlation Coefficients",
+    ) -> None:
+    """
+    Plot the correlation coefficients of the features against the target.
+
+    Parameters
+    ----------
+    corr_df : pandas.DataFrame
+        The DataFrame containing the correlation coefficients. The columns of
+        the DataFrame are the features and the index is the correlation
+        coefficient method.
+    title : str, default "Correlation Coefficients"
+        The title of the plot.
+
+    Returns
+    -------
+    None
+        Displays the plot of the correlation coefficients.
+    """
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=corr_df.columns,
+        y=corr_df.loc["point_biserial"],
+        mode="markers",
+        marker=dict(size=12),
+        name="Point Biserial"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=corr_df.columns,
+        y=corr_df.loc["spearman"],
+        mode="markers",
+        marker=dict(size=12),
+        name="Spearman"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=corr_df.columns,
+        y=corr_df.loc["kendall"],
+        mode="markers",
+        marker=dict(size=12),
+        name="Kendall"
+    ))
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Features",
+        yaxis_title="Correlation Coefficient",
+        template="plotly_white",
+        height=700
+    )
+
+    fig.show()
+
+
+def heatmap_correlations(
+        matrix,
+        labels: list[str],
+        title: str = "Pearson correlation Heatmap",
+        figsize: tuple[int, int] = (16, 16),
+        cmap: str = "crest"
+    ) -> None:
+    """
+    Plot a heatmap of the correlations between the features in the given
+    dataframe.
+
+    Parameters
+    ----------
+    matrix : pd.DataFrame
+        The dataframe containing the features to plot the correlations for. The
+        columns of the dataframe are the features.
+    labels : list of str
+        The labels for the features to plot the correlations for.
+    figsize : tuple of int, default (20, 20)
+        The size of the figure to create for the heatmap.
+    title : str, default "Correlation Heatmap"
+        The title of the heatmap.
+    cmap : str, default "crest"
+        The colormap to use for the heatmap.
+
+    Returns
+    -------
+    None
+        Displays the heatmap of the correlations between the features.
+    """
+
+    plt.figure(figsize=figsize)
+
+    sns.heatmap(
+        matrix,
+        annot=False,
+        fmt=".2f",
+        cmap=cmap,
+        cbar_kws={"shrink": .8},
+        linewidths=0.5,
+        linecolor="black",
+        square=True
+    )
+    plt.xticks(
+        ticks=np.arange(len(labels)) + 0.5,
+        labels=labels,
+        rotation=45,
+        ha="right"
+    )
+    plt.yticks(
+        ticks=np.arange(len(labels)) + 0.5,
+        labels=labels,
+        rotation=0,
+        va="center"
+    )
+    plt.title(title, fontsize=20)
+    plt.show()
+
+
+def pairplot(
+        data,
+        title: str,
+        kde_color: str = "#421f6e",
+        scatter_color: str = "#7a4db0",
+        hue = None,
+        cmap: str = "cool",
+        height: int = 5
+    ):
+    """
+    Plot a pairplot of the given data.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        The data to plot the pairplot for. The columns of the dataframe are the
+        features.
+    title : str
+        The title of the pairplot.
+    kde_color : str
+        The color to use for the KDE plots.
+    scatter_color : str
+        The color to use for the scatter plots.
+    hue : pd.Series
+        The hue variable to use for the pairplot. If None, the pairplot will
+        not be colored by hue.
+    cmap : str
+        The colormap to use for the pairplot. If hue is None, this will be
+        ignored.
+    height : int, default 5
+        The height of each subplot in the pairplot.
+
+    Returns
+    -------
+    None
+        Displays the pairplot of the given data.
+    """
+
+    def plot_mean_median(x, **kwargs):
+        """Plot the mean and median of the data on the diagonal of the
+        pairplot."""
+
+        mean_val = np.mean(x)
+        plt.axvline(
+            mean_val,
+            color="blue",
+            linestyle="-",
+            label=f"Mean: {mean_val:.2f}"
+        )
+
+        median_val = np.median(x)
+        plt.axvline(
+            median_val,
+            color="red",
+            linestyle="--",
+            label=f"Median {median_val:.2f}"
+        )
+        plt.legend()
+
+
+    if hue is not None:
+        plot_kws = {"hue": hue, "palette": cmap, "alpha": 1, "s": 1.5}
+    else:
+        plot_kws = {"color": scatter_color, "alpha": 1, "s": 1.5}
+
+    g = sns.pairplot(
+        data,
+        diag_kind="kde",
+        plot_kws=plot_kws,
+        diag_kws={"color": kde_color},
+        height=height
+    )
+
+    g.map_lower(sns.kdeplot, levels=4, color="black")
+    g.map_diag(plot_mean_median)
+
+    if hue is not None:
+        # Create a normalized scalar mappable for the color bar
+        norm = Normalize(vmin=hue.min(), vmax=hue.max())
+        sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array([])
+
+        g.figure.subplots_adjust(right=0.85)
+        cbar_ax = g.figure.add_axes([0.88, 0.15, 0.02, 0.7])
+        g.figure.colorbar(sm, cax=cbar_ax, label=hue.name)
+
+    plt.suptitle(title, y=1.02)
     plt.show()
