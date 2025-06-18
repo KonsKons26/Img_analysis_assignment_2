@@ -5,25 +5,14 @@ import cv2 as cv
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 from sklearn.svm import SVC
-from sklearn.naive_bayes import GaussianNB
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import matthews_corrcoef
+from mrmr import mrmr_classif
+import optuna
+import joblib
 
-from src.utils import get_paths, read_image
-
-
-MODELS = {
-    "QDA": QuadraticDiscriminantAnalysis(),
-    "SVM": SVC(),
-    "NB": GaussianNB(),
-    "RF": RandomForestClassifier(),
-}
+from src.utils import read_image
 
 
 class FeatureExtractor:
@@ -325,11 +314,15 @@ class FeatureExtractor:
             return 0.0
 
         if img.dtype != np.uint8:
-            img_8bit = cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(np.uint8)
+            img_8bit = cv.normalize(img, None, 0, 255, cv.NORM_MINMAX).astype(
+                np.uint8
+            )
         else:
             img_8bit = img
 
-        ret, _ = cv.threshold(img_8bit, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+        ret, _ = cv.threshold(
+            img_8bit, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU
+        )
         actual_otsu_threshold = ret
 
         pixels_above_thr = img[img >= actual_otsu_threshold]
@@ -338,20 +331,25 @@ class FeatureExtractor:
         variance_sum = 0.0
         if pixels_above_thr.size > 0:
             if pixels_above_thr.size > 1:
-                variance_sum += np.mean(pixels_above_thr) * np.var(pixels_above_thr)
+                variance_sum += np.mean(pixels_above_thr) * np.var(
+                    pixels_above_thr
+                )
             else:
                 variance_sum += np.mean(pixels_above_thr) * 0.0
 
         if pixels_below_thr.size > 0:
             if pixels_below_thr.size > 1:
-                variance_sum += np.mean(pixels_below_thr) * np.var(pixels_below_thr)
+                variance_sum += np.mean(pixels_below_thr) * np.var(
+                    pixels_below_thr
+                )
             else:
                 variance_sum += np.mean(pixels_below_thr) * 0.0
 
         return actual_otsu_threshold
 
     def _count_edges(self, img):
-        """Counts the number of edges in the image using Canny edge detection."""
+        """Counts the number of edges in the image using Canny edge
+        detection."""
         img_copy = img.copy()
         if img_copy.dtype != np.uint8:
             img_copy = cv.normalize(
@@ -452,16 +450,140 @@ class FeatureExtractor:
         hu_moments = cv.HuMoments(moments).flatten()
         return list(hu_moments)
 
-# class ClassicalML:
-#     def __init__(
-#             self,
-#             model_type: str,
-#             normal_path: str,
-#             pneumonia_path: str,
-#             models_path: str,
-#     ):
-#         self.model_type = model_type
-#         self.model = MODELS[self.model_type]
-#         self.normal_path = normal_path
-#         self.pneumonia_path = pneumonia_path
-#         self.models_path = models_path
+class MySVC:
+
+    def __init__(
+            self,
+            model_dir: str,
+            data: pd.DataFrame,
+            target: str = "label",
+            optuna_trials: int = 50,
+            cv_folds: int = 5,
+            max_features: int = 10,
+            random_state: int = 42
+        ):
+
+        self.model_dir = model_dir
+
+        self.data = data
+        self.target = target
+        self.X = self.data.copy()
+        self.y = self.X.pop(self.target)
+        self.optuna_trials = optuna_trials
+        self.cv_folds = cv_folds
+        self.max_features = max_features
+        self.random_state = random_state
+
+        self.best_model = None
+        self.best_params = None
+        self.best_mcc = None
+        self.selected_features = None
+
+    def _mrmr_feature_selection(self):
+        K = min(self.max_features, self.X.shape[1])
+        selected_features = mrmr_classif(
+            X=self.X, y=self.y, K=K, show_progress=False
+        )
+        return selected_features
+
+    def _objective(self, trial: optuna.Trial) -> float:
+        selected_features = self._mrmr_feature_selection()
+        X_selected = self.X[selected_features]
+
+        svc_c = trial.suggest_float("C", 1e-5, 1e5, log=True)
+        svc_kernel = trial.suggest_categorical("kernel", ["rbf", "sigmoid"])
+
+        svc_gamma = "scale"
+        if svc_kernel in ["rbf", "poly", "sigmoid"]:
+            svc_gamma = trial.suggest_categorical("gamma", ["scale", "auto"])
+
+        skf = StratifiedKFold(
+            n_splits=self.cv_folds, shuffle=True, random_state=self.random_state
+        )
+
+        mcc_scores = []
+        for fold, (train_index, val_index) in enumerate(
+            skf.split(X_selected, self.y)
+        ):
+            X_train = X_selected.iloc[train_index]
+            X_val = X_selected.iloc[val_index]
+            y_train = self.y.iloc[train_index]
+            y_val = self.y.iloc[val_index]
+
+            model = SVC(
+                C=svc_c,
+                kernel=svc_kernel,
+                gamma=svc_gamma,
+                random_state=self.random_state
+            )
+
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_val)
+
+            mcc = matthews_corrcoef(y_val, y_pred)
+            mcc_scores.append(mcc)
+
+        avg_mcc = sum(mcc_scores) / len(mcc_scores)
+
+        return avg_mcc
+
+    def find_best_hyperparameters(self):
+        print("Starting Optuna optimization...")
+        study = optuna.create_study(direction="maximize")
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+        study.optimize(
+            self._objective,
+            n_trials=self.optuna_trials, show_progress_bar=True
+        )
+
+        self.best_params = study.best_params
+        self.best_mcc = study.best_value
+
+        print(f"\nBest trial finished with MCC: {self.best_mcc}")
+        print("Best hyperparameters:")
+        for key, value in self.best_params.items():
+            print(f"  {key}: {value}")
+
+        print("Performing final feature selection on full training set...")
+        self.selected_features = self._mrmr_feature_selection()
+        self.X_selected = self.X[self.selected_features]
+        print(
+            f"Selected {len(self.selected_features)} "
+            f"features: {self.selected_features}"
+        )
+
+        self.best_model = SVC(
+            random_state=self.random_state, **self.best_params
+        )
+        self.best_model.fit(self.X_selected, self.y)
+        print("Best model trained successfully.")
+
+        # Save model
+        model_path = os.path.join(self.model_dir, "SVC_best_model.joblib")
+        joblib.dump({
+            "model": self.best_model,
+            "selected_features": self.selected_features,
+            "best_params": self.best_params
+        }, model_path)
+        print(f"Best model and metadata saved to: {model_path}")
+
+    def get_best_model(self):
+        if self.best_model is None:
+            raise RuntimeError(
+                "Run find_best_hyperparameters() first to train and "
+                "store the model."
+            )
+        return self.best_model
+
+    def load_model(self):
+        """Loads the best model, selected features, and hyperparameters from
+        disk."""
+        model_path = os.path.join(self.model_dir, "best_model.joblib")
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"No saved model found at {model_path}")
+
+        saved = joblib.load(model_path)
+        self.best_model = saved["model"]
+        self.selected_features = saved["selected_features"]
+        self.best_params = saved["best_params"]
+        print(f"Model loaded from {model_path}")
