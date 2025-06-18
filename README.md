@@ -1,6 +1,6 @@
 # Image Analysis and Processing - Second Assignment
 
-_Konstantinos Konstantinidis_
+_Konstantinos Konstantinidis_  
 _Student number: 7115152400017_
 
 ## Data
@@ -96,18 +96,21 @@ The final model is an extremely strong classifier with Classification Metrics:
 
 The implementation is in the [nn_ml.ipynb](notebooks/nn_ml.ipynb) notebook.
 
+
+
 ## Notes
 
 All functions are in the `src` directory and all implementations are in the `notebooks` directory. The models were saved in the `models` directory.
 
-The data are in the `chest_xray`, `merged`, `preprocessed`, and `extracted_features` directories which are omitted from this repository in order to save space and keep it cleaner, so to recreate the results read the following.
+The data are in the `chest_xray`, `merged`, `preprocessed`, and `extracted_features` directories which are omitted from this repository in order to save space and keep it cleaner, so to recreate the results __read the following brief instructions:__
 
-The file `requirements.txt` contains the packages used. To recreate the environment to re-run the notebooks, run:
-
-```python
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-and select the appropriate environment in the notebooks.
+- Clone this repository and cd into it.
+- Download the dataset from [Kaggle](https://www.kaggle.com/paultimothymooney/chest-xray-pneumonia).
+- The file `requirements.txt` contains the packages used. To recreate the environment to re-run the notebooks, run:
+  ```python
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -r requirements.txt
+  ```
+  and select the appropriate environment in the notebooks.
+- Run the notebooks in the order mentioned in this `.md`.
