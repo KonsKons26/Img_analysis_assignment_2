@@ -2,4 +2,5 @@
 chest_xray
 merged
 preprocessed
+extracted_features
 src/__pycache__
